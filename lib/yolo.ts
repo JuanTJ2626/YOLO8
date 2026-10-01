@@ -1,5 +1,5 @@
-// Detector YOLO para navegadores — Ultra-optimizado en JS (Decodificación directa en <2ms)
-// Carga onnxruntime-web via <script> tag desde /ort-wasm/ort.min.js (local, sin CDN).
+// Detector YOLO para navegadores — Ultra-optimizado en JS con fallback dinámico de runtime
+// Carga onnxruntime-web via <script> tag desde /ort-wasm/ort.all.min.js.
 
 export type Detection = {
   x1: number;
@@ -96,7 +96,7 @@ export const COCO_CLASSES: Record<number, string> = {
 
 export const VEHICLE_CLASSES = COCO_CLASSES;
 
-const INPUT_SIZE = 640;
+const INPUT_SIZE = 320; // Modelo exportado con imgsz=320 (4x más rápido en WebGPU)
 const INV_255 = 1 / 255;
 
 export type Options = {
@@ -134,15 +134,16 @@ function loadOrtScript(): Promise<void> {
     }
     const s = document.createElement("script");
     s.id   = "ort-local";
-    s.src  = "/ort-wasm/ort.min.js";
+    s.src  = "/ort-wasm/ort.all.min.js";
     s.onload  = () => resolve();
-    s.onerror = () => reject(new Error("No se pudo cargar /ort-wasm/ort.min.js"));
+    s.onerror = () => reject(new Error("No se pudo cargar /ort-wasm/ort.all.min.js"));
     document.head.appendChild(s);
   });
 }
 
 export class YoloDetector {
   public backend: string;
+  private modelUrl: string;
   private ort: any;
   private session: any;
   private inputName: string;
@@ -152,10 +153,11 @@ export class YoloDetector {
   private ctx: CanvasRenderingContext2D;
   private buffer: Float32Array;
 
-  private constructor(ort: any, session: any, backend: string, opts: Options) {
+  private constructor(ort: any, session: any, backend: string, modelUrl: string, opts: Options) {
     this.ort       = ort;
     this.session   = session;
     this.backend   = backend;
+    this.modelUrl  = modelUrl;
     this.inputName = session.inputNames[0] ?? "images";
     this.conf      = opts.confThreshold ?? 0.30;
     this.iouThr    = opts.iouThreshold  ?? 0.45;
@@ -173,30 +175,42 @@ export class YoloDetector {
     if (!ort) throw new Error("onnxruntime-web no cargó correctamente.");
 
     ort.env.wasm.wasmPaths = "/ort-wasm/";
-    ort.env.wasm.numThreads = 1; // 1 thread para máxima velocidad de bucle de eventos sin worker lock
-    ort.env.wasm.simd = true;     // Activa SIMD para aceleración CPU de vectores
+    ort.env.wasm.numThreads = 1;
+    ort.env.wasm.simd = true;
 
     console.log(`[YOLO] Cargando modelo ONNX (640x640) desde ${modelUrl}...`);
 
-    // 1. Intentar WebGPU
+    // 1. Intentar WebGPU (Con el modelo libre de Softmax: Exp + ReduceSum + Div)
     try {
       const session = await ort.InferenceSession.create(modelUrl, {
         executionProviders: ["webgpu"],
         graphOptimizationLevel: "all",
       });
-      console.log("[YOLO] ⚡ Backend: WebGPU Activo");
-      return new YoloDetector(ort, session, "WebGPU (GPU)", opts);
+      console.log("[YOLO] ⚡ Backend: WebGPU NATIVO Activo (Modelo Optimizado)");
+      return new YoloDetector(ort, session, "WebGPU (GPU)", modelUrl, opts);
     } catch (gpuErr) {
-      console.warn("[YOLO] WebGPU no disponible → usando WASM (CPU SIMD)");
+      console.warn("[YOLO] WebGPU no disponible → probando WebGL...");
     }
 
-    // 2. Fallback WASM CPU
+    // 2. Intentar WebGL
+    try {
+      const session = await ort.InferenceSession.create(modelUrl, {
+        executionProviders: ["webgl"],
+        graphOptimizationLevel: "basic",
+      });
+      console.log("[YOLO] ⚡ Backend: WebGL Activo");
+      return new YoloDetector(ort, session, "WebGL (GPU)", modelUrl, opts);
+    } catch (webglErr) {
+      console.warn("[YOLO] WebGL no disponible → usando WASM (CPU SIMD)");
+    }
+
+    // 3. Fallback WASM CPU
     const session = await ort.InferenceSession.create(modelUrl, {
       executionProviders: ["wasm"],
       graphOptimizationLevel: "all",
     });
     console.log("[YOLO] ⚡ Backend: WASM (CPU SIMD)");
-    return new YoloDetector(ort, session, "WASM (CPU)", opts);
+    return new YoloDetector(ort, session, "WASM (CPU)", modelUrl, opts);
   }
 
   async detect(video: HTMLVideoElement): Promise<Detection[]> {
@@ -218,7 +232,6 @@ export class YoloDetector {
     const plane = INPUT_SIZE * INPUT_SIZE;
     const buf   = this.buffer;
 
-    // Preprocesamiento acelerado con multiplicación directa
     for (let i = 0; i < plane; i++) {
       const j = i * 4;
       buf[i]             = data[j]     * INV_255;
@@ -226,11 +239,26 @@ export class YoloDetector {
       buf[2 * plane + i] = data[j + 2] * INV_255;
     }
 
-    const tensor  = new this.ort.Tensor("float32", buf, [1, 3, INPUT_SIZE, INPUT_SIZE]);
-    const results = await this.session.run({ [this.inputName]: tensor });
-    const output  = results[this.session.outputNames[0]];
-
-    return this.decode(output, scale, padX, padY, vw, vh);
+    try {
+      const tensor  = new this.ort.Tensor("float32", buf, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+      const results = await this.session.run({ [this.inputName]: tensor });
+      const output  = results[this.session.outputNames[0]];
+      return this.decode(output, scale, padX, padY, vw, vh);
+    } catch (runErr) {
+      if (this.backend.includes("GPU")) {
+        console.warn(`[YOLO] Error al ejecutar inferencia en ${this.backend} (Kernel incompatible). Cambiando dinámicamente a WASM (CPU SIMD)...`, runErr);
+        this.session = await this.ort.InferenceSession.create(this.modelUrl, {
+          executionProviders: ["wasm"],
+          graphOptimizationLevel: "all",
+        });
+        this.backend = "WASM (CPU SIMD)";
+        const tensor  = new this.ort.Tensor("float32", buf, [1, 3, INPUT_SIZE, INPUT_SIZE]);
+        const results = await this.session.run({ [this.inputName]: tensor });
+        const output  = results[this.session.outputNames[0]];
+        return this.decode(output, scale, padX, padY, vw, vh);
+      }
+      throw runErr;
+    }
   }
 
   private decode(
@@ -271,14 +299,14 @@ export class YoloDetector {
       return dets;
     }
 
-    // Formato Standard YOLOv8 [1, 84, 8400] — Decodificación ultra-rápida sin closures ni llamadas a funciones
-    const chFirst  = a < b; // true para [1, 84, 8400]
-    const channels = chFirst ? a : b; // 84
-    const anchors  = chFirst ? b : a; // 8400
-    const numClasses = channels - 4; // 80
+    // Formato Standard YOLOv8 [1, 84, 8400]
+    const chFirst  = a < b;
+    const channels = chFirst ? a : b;
+    const anchors  = chFirst ? b : a;
+    const numClasses = channels - 4;
 
     if (chFirst) {
-      const stride = anchors; // 8400
+      const stride = anchors;
       const row0 = 0;
       const row1 = stride;
       const row2 = 2 * stride;
@@ -288,7 +316,6 @@ export class YoloDetector {
         let bestId = -1;
         let bestScore = this.conf;
 
-        // Búsqueda directa en memoria sin invocar funciones intermedias
         for (let c = 0; c < numClasses; c++) {
           const s = data[(4 + c) * stride + i];
           if (s > bestScore) {
@@ -319,7 +346,6 @@ export class YoloDetector {
         }
       }
     } else {
-      // Formato alternativo [1, 8400, 84]
       for (let i = 0; i < anchors; i++) {
         const offset = i * channels;
         let bestId = -1;

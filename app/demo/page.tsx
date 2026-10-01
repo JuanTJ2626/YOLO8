@@ -8,9 +8,8 @@ import {
   Layers, Activity, CheckCircle2, Video, Zap,
 } from "lucide-react";
 
-const MODEL_URL = "/models/yolov8n.onnx";
+const MODEL_URL = "/models/yolov8n_webgpu.onnx";
 const MAX_ZONES = 4;
-const INFER_EVERY_MS = 0; // Inferir tan rápido como sea posible (el flag busy evita acumulación)
 
 type Zone = { x: number; y: number; w: number; h: number };
 
@@ -54,6 +53,7 @@ export default function DemoPage() {
   const [lights, setLights] = useState<LightState[]>([]);
   const [total, setTotal] = useState(0);
   const [fps, setFps] = useState(0);
+  const [inferMs, setInferMs] = useState<number>(0);
 
   // ---------- Fuente de video ----------
   const stopSource = useCallback(() => {
@@ -190,32 +190,23 @@ export default function DemoPage() {
     };
   }, [stopSource]);
 
-  // Crear zonas automáticas al activar una fuente
-  useEffect(() => {
-    if (source !== "ninguna" && zones.length === 0) {
-      commitZones([
-        { x: 0.1, y: 0.15, w: 0.35, h: 0.7 },
-        { x: 0.55, y: 0.15, w: 0.35, h: 0.7 },
-      ]);
-    }
-  }, [source, zones.length, commitZones]);
+  // Las zonas se crean manualmente arrastrando sobre el video (no se crean automáticamente)
 
   // ---------- Loop principal de inferencia y render ----------
   useEffect(() => {
-    let raf = 0;
     let busy = false;
     let disabled = false;
-    let lastInfer = 0;
     let lastDone = 0;
     let fpsAvg = 0;
-
     let lastUIUpdate = 0;
 
     const runInference = (video: HTMLVideoElement, det: YoloDetector) => {
       busy = true;
+      const tStart = performance.now();
       det
         .detect(video)
         .then((dets) => {
+          const lat = Math.round(performance.now() - tStart);
           detsRef.current = dets;
           const vw = video.videoWidth || 1280;
           const vh = video.videoHeight || 720;
@@ -238,10 +229,12 @@ export default function DemoPage() {
 
           if (now - lastUIUpdate > 200) {
             lastUIUpdate = now;
+            setBackend(det.backend);
             setCounts(c);
             setLights(states);
             setTotal(dets.length);
             setFps(Math.round(fpsAvg));
+            setInferMs(lat);
           }
         })
         .catch((e) => {
@@ -333,14 +326,17 @@ export default function DemoPage() {
       }
     };
 
-    const loop = (t: number) => {
-      raf = requestAnimationFrame(loop);
+    // ── Inferencia: usa setInterval, NUNCA toca requestAnimationFrame ──
+    // Así el hilo principal del navegador siempre es libre para el dibujo
+    const inferInterval = setInterval(() => {
       const video = videoRef.current;
       const canvas = canvasRef.current;
       if (!video || !canvas) return;
 
-      const vw = video.videoWidth || 1280;
-      const vh = video.videoHeight || 720;
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      if (!vw || !vh) return;
+
       if (canvas.width !== vw || canvas.height !== vh) {
         canvas.width = vw;
         canvas.height = vh;
@@ -348,15 +344,24 @@ export default function DemoPage() {
       }
 
       const det = detectorRef.current;
-      if (det && !busy && !disabled && t - lastInfer >= INFER_EVERY_MS) {
-        lastInfer = t;
+      if (det && !busy && !disabled) {
         runInference(video, det);
       }
-      draw(canvas);
-    };
+    }, 0); // 0ms = lo más seguido posible sin bloquear
 
-    raf = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(raf);
+    // ── Dibujo: RAF limpio, solo pinta en canvas, nada de inferencia ──
+    let drawRaf = 0;
+    const drawLoop = () => {
+      drawRaf = requestAnimationFrame(drawLoop);
+      const canvas = canvasRef.current;
+      if (canvas) draw(canvas);
+    };
+    drawRaf = requestAnimationFrame(drawLoop);
+
+    return () => {
+      clearInterval(inferInterval);
+      cancelAnimationFrame(drawRaf);
+    };
   }, []);
 
   const canDraw = zones.length < MAX_ZONES;
@@ -565,8 +570,10 @@ export default function DemoPage() {
                 <p className="mt-1 font-bold text-cyan-400 text-lg">{total}</p>
               </div>
               <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
-                <span className="text-slate-400">FPS Inferencia</span>
-                <p className="mt-1 font-bold text-amber-400 text-lg">{fps}</p>
+                <span className="text-slate-400">FPS / Latencia Inferencia</span>
+                <p className="mt-1 font-bold text-amber-400 text-lg">
+                  {fps} FPS <span className="text-xs text-slate-400 font-normal">({inferMs} ms)</span>
+                </p>
               </div>
               <div className="rounded-xl bg-slate-950 border border-slate-800 p-3">
                 <span className="text-slate-400">Zonas Activas</span>
