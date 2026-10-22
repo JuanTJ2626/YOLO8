@@ -1,22 +1,36 @@
 import type { Metadata } from "next";
-import { Inter } from "next/font/google";
+import { Inter, Syne, DM_Mono } from "next/font/google";
 import "./globals.css";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
+
+const syne = Syne({
+  subsets: ["latin"],
+  variable: "--font-syne",
+  display: "swap",
+  weight: ["700", "800"],
+});
+
+const dmMono = DM_Mono({
+  subsets: ["latin"],
+  variable: "--font-mono",
+  display: "swap",
+  weight: ["400", "500"],
+});
 
 export const metadata: Metadata = {
-  title: "Controlador de Tráfico YOLO26 | Detección Vehicular ONNX",
-  description: "Detección inteligente de vehículos y semáforos adaptativos en tiempo real con YOLO y Next.js",
+  title: "YOLO26n Vision — Detección Vehicular en Tiempo Real",
+  description: "Sistema de detección inteligente de objetos con YOLO26n + ONNX Web.",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="es">
-      <body className={inter.className}>{children}</body>
+    <html lang="es" className={`${inter.variable} ${syne.variable} ${dmMono.variable}`}>
+      <body>{children}</body>
     </html>
   );
 }

@@ -1,17 +1,12 @@
-// Lógica de semáforos: recibe cuántos vehículos hay en cada zona/carril
-// y decide qué semáforo está en verde, amarillo o rojo.
-// No depende de React ni de la cámara, así que después puedes correrla
-// en un servidor y mandar el resultado a los ESP32 (MQTT / WebSocket).
-
 export type LightState = "green" | "yellow" | "red";
 
-export type ControllerConfig = {
-  minGreenMs: number; // tiempo mínimo en verde antes de poder cambiar
-  maxGreenMs: number; // tiempo máximo en verde si hay alguien esperando
-  yellowMs: number;   // duración del amarillo
+type ControllerConfig = {
+  minGreenMs: number;
+  maxGreenMs: number;
+  yellowMs: number;
 };
 
-export const DEFAULT_CONFIG: ControllerConfig = {
+const DEFAULT_CONFIG: ControllerConfig = {
   minGreenMs: 5000,
   maxGreenMs: 20000,
   yellowMs: 2000,

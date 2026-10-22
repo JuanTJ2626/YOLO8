@@ -1,9 +1,12 @@
-# Modelos ONNX para YOLO
-Coloca aquí tu archivo `yolo26n.onnx` o `yolov8n.onnx`.
+# Modelos ONNX para YOLO26n
 
-Para exportar el modelo usando Python:
+Coloca aquí el archivo `yolo26n_webgpu.onnx` generado por el script de exportación.
+
+Para exportar y parchear el modelo:
 ```bash
-pip install ultralytics
-yolo export model=yolo26n.pt format=onnx imgsz=640
+pip install ultralytics onnx
+python scripts/export_and_patch_320.py
 ```
-Y luego copia `yolo26n.onnx` en `public/models/yolo26n.onnx`.
+
+El script carga `yolo26n.pt`, exporta a ONNX con `imgsz=320` y reemplaza el nodo Softmax del DFL
+por `Exp + ReduceSum + Div` para compatibilidad con WebGPU.

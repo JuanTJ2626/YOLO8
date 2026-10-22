@@ -2,7 +2,7 @@ import os
 import sys
 
 def export_and_patch():
-    target_onnx = os.path.join("public", "models", "yolov8n_webgpu.onnx")
+    target_onnx = os.path.join("public", "models", "yolo26n_webgpu.onnx")
 
     try:
         from ultralytics import YOLO

@@ -3,18 +3,143 @@
 @tailwind utilities;
 
 :root {
-  --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 2, 6, 23;
-  --background-end-rgb: 15, 23, 42;
+  --bg:        #fafbfc;
+  --bg-card:   #ffffff;
+  --border:    rgba(0,0,0,0.07);
+  --red:       #e00000;
+  --red-dim:   rgba(224,0,0,0.07);
+  --ink:       #0a0a0a;
+  --ink-2:     rgba(10,10,10,0.45);
+  --ink-3:     rgba(10,10,10,0.22);
+  --ink-4:     rgba(10,10,10,0.08);
+
+  --font-sans:    var(--font-inter),    system-ui, sans-serif;
+  --font-display: var(--font-syne),     system-ui, sans-serif;
+  --font-mono:    var(--font-mono),     monospace;
 }
 
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
 body {
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-sans);
   min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Dot-grid background (Linear/Vercel style) ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: radial-gradient(circle, rgba(0,0,0,0.08) 1px, transparent 1px);
+  background-size: 28px 28px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Fade-out at bottom so grid doesn't clash with content */
+body::after {
+  content: '';
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 220px;
+  background: linear-gradient(to bottom, transparent, var(--bg));
+  pointer-events: none;
+  z-index: 0;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.03);
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--ink-4); border-radius: 2px; }
+
+/* ── Typography helpers ── */
+.font-display { font-family: var(--font-display); }
+.font-mono    { font-family: var(--font-mono); }
+
+.grad-red {
+  background: linear-gradient(135deg, #e00000 0%, #ff4444 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── SVG / CSS Animations ── */
+
+@keyframes spin-slow {
+  to { transform: rotate(360deg); }
+}
+.spin-slow {
+  animation: spin-slow 14s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes spin-rev {
+  to { transform: rotate(-360deg); }
+}
+.spin-rev {
+  animation: spin-rev 20s linear infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { transform: scale(1);   opacity: 0.65; }
+  50%       { transform: scale(1.6); opacity: 1;   }
+}
+.dot-pulse {
+  animation: dot-pulse 2s ease-in-out infinite;
+  transform-box: fill-box;
+  transform-origin: center;
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%       { transform: translateY(-5px); }
+}
+.float { animation: float 3.2s ease-in-out infinite; }
+
+/* Traffic light glows */
+@keyframes glow-green  { 0%,100%{box-shadow:0 0 5px 2px #00c853;} 50%{box-shadow:0 0 14px 5px #00c853;} }
+@keyframes glow-yellow { 0%,100%{box-shadow:0 0 5px 2px #ffd600;} 50%{box-shadow:0 0 14px 5px #ffd600;} }
+@keyframes glow-red    { 0%,100%{box-shadow:0 0 5px 2px #e00000;} 50%{box-shadow:0 0 14px 5px #e00000;} }
+
+.light-green  { animation: glow-green  1.4s ease-in-out infinite; }
+.light-yellow { animation: glow-yellow 0.8s ease-in-out infinite; }
+.light-red    { animation: glow-red    2s   ease-in-out infinite; }
+
+/* Shine sweep on hover */
+@keyframes shine {
+  from { transform: translateX(-100%) skewX(-15deg); }
+  to   { transform: translateX(220%)  skewX(-15deg); }
+}
+.shine-btn { position: relative; overflow: hidden; }
+.shine-btn:hover::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.22), transparent);
+  animation: shine 0.5s ease forwards;
+}
+
+/* Inference progress bar */
+@keyframes infer-bar {
+  0%   { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+.infer-bar {
+  animation: infer-bar 1.2s ease-in-out infinite;
 }

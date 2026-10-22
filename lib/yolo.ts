@@ -1,4 +1,4 @@
-// Detector YOLO para navegadores — Ultra-optimizado en JS con fallback dinámico de runtime
+// Detector YOLO26n para navegadores — fallback dinámico de runtime (WebGPU → WebGL → WASM)
 // Carga onnxruntime-web via <script> tag desde /ort-wasm/ort.all.min.js.
 
 export type Detection = {
@@ -94,12 +94,10 @@ export const COCO_CLASSES: Record<number, string> = {
   79: "cepillo de dientes",
 };
 
-export const VEHICLE_CLASSES = COCO_CLASSES;
-
 const INPUT_SIZE = 320; // Modelo exportado con imgsz=320 (4x más rápido en WebGPU)
 const INV_255 = 1 / 255;
 
-export type Options = {
+type Options = {
   confThreshold?: number;
   iouThreshold?: number;
 };
@@ -178,7 +176,7 @@ export class YoloDetector {
     ort.env.wasm.numThreads = 1;
     ort.env.wasm.simd = true;
 
-    console.log(`[YOLO] Cargando modelo ONNX (640x640) desde ${modelUrl}...`);
+    console.log(`[YOLO26n] Cargando modelo ONNX (320x320) desde ${modelUrl}...`);
 
     // 1. Intentar WebGPU (Con el modelo libre de Softmax: Exp + ReduceSum + Div)
     try {
@@ -186,10 +184,10 @@ export class YoloDetector {
         executionProviders: ["webgpu"],
         graphOptimizationLevel: "all",
       });
-      console.log("[YOLO] ⚡ Backend: WebGPU NATIVO Activo (Modelo Optimizado)");
+      console.log("[YOLO26n] ⚡ Backend: WebGPU NATIVO Activo");
       return new YoloDetector(ort, session, "WebGPU (GPU)", modelUrl, opts);
     } catch (gpuErr) {
-      console.warn("[YOLO] WebGPU no disponible → probando WebGL...");
+      console.warn("[YOLO26n] WebGPU no disponible → probando WebGL...");
     }
 
     // 2. Intentar WebGL
@@ -198,10 +196,10 @@ export class YoloDetector {
         executionProviders: ["webgl"],
         graphOptimizationLevel: "basic",
       });
-      console.log("[YOLO] ⚡ Backend: WebGL Activo");
+      console.log("[YOLO26n] ⚡ Backend: WebGL Activo");
       return new YoloDetector(ort, session, "WebGL (GPU)", modelUrl, opts);
     } catch (webglErr) {
-      console.warn("[YOLO] WebGL no disponible → usando WASM (CPU SIMD)");
+      console.warn("[YOLO26n] WebGL no disponible → usando WASM (CPU SIMD)");
     }
 
     // 3. Fallback WASM CPU
@@ -209,7 +207,7 @@ export class YoloDetector {
       executionProviders: ["wasm"],
       graphOptimizationLevel: "all",
     });
-    console.log("[YOLO] ⚡ Backend: WASM (CPU SIMD)");
+    console.log("[YOLO26n] ⚡ Backend: WASM (CPU SIMD)");
     return new YoloDetector(ort, session, "WASM (CPU)", modelUrl, opts);
   }
 
@@ -246,7 +244,7 @@ export class YoloDetector {
       return this.decode(output, scale, padX, padY, vw, vh);
     } catch (runErr) {
       if (this.backend.includes("GPU")) {
-        console.warn(`[YOLO] Error al ejecutar inferencia en ${this.backend} (Kernel incompatible). Cambiando dinámicamente a WASM (CPU SIMD)...`, runErr);
+        console.warn(`[YOLO26n] Error en ${this.backend} (kernel incompatible). Cambiando a WASM (CPU SIMD)...`, runErr);
         this.session = await this.ort.InferenceSession.create(this.modelUrl, {
           executionProviders: ["wasm"],
           graphOptimizationLevel: "all",
@@ -299,7 +297,7 @@ export class YoloDetector {
       return dets;
     }
 
-    // Formato Standard YOLOv8 [1, 84, 8400]
+    // Formato Standard YOLO26 [1, 84, 8400]
     const chFirst  = a < b;
     const channels = chFirst ? a : b;
     const anchors  = chFirst ? b : a;
